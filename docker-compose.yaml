@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  postgres-db:
+    image: postgres:latest
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB__DB_USER}
+      POSTGRES_PASSWORD: ${DB__DB_PASSWORD}
+      POSTGRES_DB: ${DB__DB_NAME}
+    ports:
+      - "${DB__DB_PORT}:5432"
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "${REDIS__REDIS_PORT}:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+  meilisearch:
+      image: getmeili/meilisearch:latest
+      ports:
+        - "7700:7700"
+      environment:
+        # MeiliSearch ожидает эти переменные для работы
+        - MEILI_MASTER_KEY=${MEILISEARCH__MEILI_MASTER_KEY}
+        - MEILI_HTTP_ADDR=0.0.0.0:770
+      volumes:
+        - meili_data:/meili_data
+      healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+        interval: 5s
+        timeout: 5s
+        retries: 5
+  # ollama:
+  #     image: ollama/ollama
+  #     container_name: ollama
+  #     volumes:
+  #       - ollama:/root/.ollama
+  #     ports:
+  #       - "11434:11434"
+volumes:
+  redis_data:
+  meili_data:
+  # ollama:

@@ -1,0 +1,18 @@
+# --- Игнорируем специфику Backend (FastAPI в папке backend/) ---
+backend/__pycache__/
+backend/*.py[cod]
+backend/venv/
+backend/.venv/
+backend/.env
+
+# --- Игнорируем специфику Frontend (React в папке frontend/) ---
+frontend/node_modules/
+frontend/build/
+frontend/dist/
+frontend/.env.local
+
+# --- Общие правила для корня ---
+.env
+.DS_Store
+.vscode/
+.idea/
