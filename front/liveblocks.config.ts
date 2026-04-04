@@ -6,7 +6,9 @@ declare global {
     Presence: {
       presence?: Json | null;
       isAgentThinking?: boolean;
-      [key: string]: Json | null | undefined;
+      /** User unmuted microphone (local capture on; others see status only unless you add WebRTC). */
+      micOn?: boolean;
+      [key: string]: Json | null | undefined | boolean;
     };
     Storage: {
       records: LiveMap<string, Json>;
