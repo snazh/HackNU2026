@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 
 
@@ -26,11 +26,17 @@ class AgentRequest(BaseModel):
 
 
 class CanvasOperation(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     tool: str
     # All possible fields — frontend reads only what's relevant per tool
     id: Optional[str] = None
     x: Optional[float] = None
     y: Optional[float] = None
+    x1: Optional[float] = None
+    y1: Optional[float] = None
+    x2: Optional[float] = None
+    y2: Optional[float] = None
     width: Optional[float] = None
     height: Optional[float] = None
     text: Optional[str] = None
@@ -41,6 +47,11 @@ class CanvasOperation(BaseModel):
     query: Optional[str] = None
     from_id: Optional[str] = None
     to_id: Optional[str] = None
+    # add_geo_shape
+    geo: Optional[str] = None
+    fill: Optional[str] = None
+    # add_frame
+    name: Optional[str] = None
 
 
 class AgentResponse(BaseModel):
