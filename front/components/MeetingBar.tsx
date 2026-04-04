@@ -6,7 +6,7 @@ import {
   useSelf,
   useSyncStatus,
 } from "@liveblocks/react/suspense";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMeetingMicrophone } from "../hooks/useMeetingMicrophone";
 import { useMeetingWebRTC } from "../hooks/useMeetingWebRTC";
 
@@ -81,6 +81,30 @@ export function MeetingBar({ roomSlug }: { roomSlug: string }) {
 
   const connected = syncStatus === "synchronized";
 
+  /** Browsers block remote audio until a user gesture; unlock on first tap or explicit control. */
+  const [remoteAudioUnlocked, setRemoteAudioUnlocked] = useState(false);
+
+  const playAllRemoteAudio = useCallback(() => {
+    document.querySelectorAll("audio[data-meeting-remote='1']").forEach((node) => {
+      const el = node as HTMLAudioElement;
+      el.volume = 1;
+      void el.play().catch(() => {});
+    });
+  }, []);
+
+  useEffect(() => {
+    const unlock = () => setRemoteAudioUnlocked(true);
+    window.addEventListener("pointerdown", unlock, { capture: true, once: true });
+    window.addEventListener("keydown", unlock, { capture: true, once: true });
+  }, []);
+
+  useEffect(() => {
+    if (!remoteAudioUnlocked) return;
+    playAllRemoteAudio();
+  }, [remoteAudioUnlocked, remoteStreams, playAllRemoteAudio]);
+
+  const hasRemoteAudio = Object.keys(remoteStreams).length > 0;
+
   return (
     <div
       style={{
@@ -102,6 +126,29 @@ export function MeetingBar({ roomSlug }: { roomSlug: string }) {
       {Object.entries(remoteStreams).map(([connId, stream]) => (
         <RemoteMeetingAudio key={connId} stream={stream} />
       ))}
+
+      {hasRemoteAudio && !remoteAudioUnlocked && (
+        <button
+          type="button"
+          onClick={() => setRemoteAudioUnlocked(true)}
+          style={{
+            position: "absolute",
+            top: 52,
+            left: 14,
+            zIndex: 501,
+            padding: "6px 12px",
+            borderRadius: 8,
+            border: "1px solid rgba(251,191,36,0.5)",
+            background: "rgba(251,191,36,0.15)",
+            color: "#fcd34d",
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          Click to hear others (browser blocked sound)
+        </button>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 120 }}>
         <span style={{ fontSize: 11, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -228,13 +275,27 @@ function RemoteMeetingAudio({ stream }: { stream: MediaStream }) {
     const el = ref.current;
     if (!el) return;
     el.srcObject = stream;
-    void el.play().catch(() => {});
+    el.volume = 1;
+    const tryPlay = () => void el.play().catch(() => {});
+    tryPlay();
+    const tracks = stream.getAudioTracks();
+    const onUnmute = () => tryPlay();
+    for (const t of tracks) {
+      t.addEventListener("unmute", onUnmute);
+    }
+    return () => {
+      for (const t of tracks) {
+        t.removeEventListener("unmute", onUnmute);
+      }
+    };
   }, [stream]);
   return (
     <audio
       ref={ref}
+      data-meeting-remote="1"
       autoPlay
       playsInline
+      muted={false}
       style={{ position: "absolute", width: 0, height: 0, opacity: 0, pointerEvents: "none" }}
       aria-hidden
     />

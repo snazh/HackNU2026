@@ -90,6 +90,8 @@ export function useMeetingWebRTC(opts: { micOn: boolean; localStream: MediaStrea
     const audioSender = pc.getSenders().find((s) => s.track?.kind === "audio");
     if (audioSender) {
       void audioSender.replaceTrack(track);
+    } else if (track && localStream) {
+      pc.addTrack(track, localStream);
     }
   }, []);
 
@@ -127,7 +129,9 @@ export function useMeetingWebRTC(opts: { micOn: boolean; localStream: MediaStrea
       }
 
       pc.ontrack = (ev) => {
-        const stream = ev.streams[0];
+        const stream =
+          ev.streams[0] ??
+          (ev.track ? new MediaStream([ev.track]) : null);
         if (stream) {
           setRemoteStreams((prev) => ({ ...prev, [peerId]: stream }));
         }
