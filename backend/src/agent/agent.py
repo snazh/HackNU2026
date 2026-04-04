@@ -1,13 +1,15 @@
 import json
+import asyncio
 from google import genai
 from google.genai import types
+from google.api_core.exceptions import ResourceExhausted
 
 from src.config import settings
 from src.agent.models import AgentRequest, AgentResponse, CanvasOperation
 from src.agent.tools import CANVAS_TOOLS
 from src.agent.session import get_history, update_session
 
-client = genai.Client(api_key=settings.gemini.KEY)
+client = genai.Client(api_key=settings.gemini)
 MODEL = "gemini-2.0-flash"
 
 # ── System prompt ────────────────────────────────────────────────────────────
@@ -80,21 +82,35 @@ async def run_agent(request: AgentRequest) -> AgentResponse:
     history = get_history(request.session_id)
     user_message = _build_user_message(request.prompt, request.canvas_state)
 
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=[
-            *history,
-            types.Content(
-                role="user",
-                parts=[types.Part(text=user_message)]
-            )
-        ],
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-            tools=[CANVAS_TOOLS],
-            temperature=0.4,
-        ),
+    contents = [
+        *history,
+        types.Content(role="user", parts=[types.Part(text=user_message)])
+    ]
+    config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_PROMPT,
+        tools=[CANVAS_TOOLS],
+        temperature=0.4,
     )
+
+    # Retry up to 4 times on 429 with exponential backoff: 5s, 10s, 20s, 40s
+    max_retries = 4
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model=MODEL,
+                contents=contents,
+                config=config,
+            )
+            break  # success — exit retry loop
+        except ResourceExhausted as e:
+            if attempt == max_retries - 1:
+                raise RuntimeError(
+                    "Gemini API rate limit reached after retries. "
+                    "Wait a moment and try again."
+                ) from e
+            wait = 5 * (2 ** attempt)  # 5, 10, 20, 40 seconds
+            print(f"[agent] 429 rate limit — retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
+            await asyncio.sleep(wait)
 
     operations = _parse_operations(response)
     agent_text = _parse_text(response)
