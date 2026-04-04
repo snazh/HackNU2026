@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "@liveblocks/client": "^3.17.0",
+    "@liveblocks/react": "^3.17.0",
+    "@liveblocks/react-flow": "^3.17.0",
+    "@liveblocks/react-ui": "^3.17.0",
+    "@tldraw/tldraw": "^4.5.7",
+    "@xyflow/react": "^12.10.2"
+  }
+}
