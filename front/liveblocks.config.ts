@@ -1,15 +1,25 @@
-import { createClient } from "@liveblocks/client";
-import { createRoomContext } from "@liveblocks/react";
+import type { Json, LiveMap } from "@liveblocks/client";
 
-// 1. Создаем клиента (ключ пока можно оставить таким для теста)
-const client = createClient({
-  publicApiKey: "pk_prod_test_key", 
-});
+declare global {
+  interface Liveblocks {
+    /** Tldraw sync adds arbitrary record ids as keys; values must stay JSON-serializable. */
+    Presence: {
+      presence?: Json | null;
+      isAgentThinking?: boolean;
+      [key: string]: Json | null | undefined;
+    };
+    Storage: {
+      records: LiveMap<string, Json>;
+    };
+    UserMeta: {
+      id: string;
+      info: {
+        name: string;
+        color: string;
+        avatar?: string;
+      };
+    };
+  }
+}
 
-// 2. Настраиваем "комнату"
-export const {
-  RoomProvider,
-  useOthers,
-  useMutation, // ВОТ ЭТА ШТУКА ДОЛЖНА БЫТЬ ТУТ
-  useMyPresence,
-} = createRoomContext(client);
+export {};

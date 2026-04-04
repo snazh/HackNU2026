@@ -1,30 +1,69 @@
-// components/AIAvatar.tsx
-'use client'
+"use client";
 
-import { useOthers } from '../liveblocks.config'
+import { useOthers } from "@liveblocks/react/suspense";
+import type { CSSProperties } from "react";
+
+const wrap: CSSProperties = {
+  position: "absolute",
+  top: 16,
+  right: 16,
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  background: "rgba(255,255,255,0.92)",
+  padding: "8px 14px 8px 10px",
+  borderRadius: 999,
+  boxShadow: "0 2px 12px rgba(0,0,0,0.08)",
+  border: "1px solid #f3f4f6",
+  zIndex: 10,
+  pointerEvents: "none",
+};
 
 export default function AIAvatar() {
-  // Проверяем, видит ли кто-то другой, что агент работает [cite: 25]
-  const othersThinking = useOthers((others) => 
-    others.some((other) => (other.presence as any).isAgentThinking)
-  )
+  const othersThinking = useOthers((others) =>
+    others.some((other) => Boolean(other.presence?.isAgentThinking))
+  );
 
   return (
-    <div className="absolute top-4 right-4 flex items-center gap-3 bg-white/80 backdrop-blur p-2 rounded-full shadow-sm border border-gray-100 z-[998]">
-      <div className="relative">
-        <div className={`w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold`}>
+    <div style={wrap}>
+      <div style={{ position: "relative", width: 40, height: 40 }}>
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: "50%",
+            background: "linear-gradient(135deg, #6366f1, #a855f7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#fff",
+            fontWeight: 700,
+            fontSize: 14,
+          }}
+        >
           AI
         </div>
-        {othersThinking && (
-          <span className="absolute inset-0 rounded-full border-2 border-indigo-500 animate-ping" />
-        )}
+        {othersThinking ? (
+          <span
+            style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: "50%",
+              border: "2px solid #6366f1",
+              animation: "lb-ping 1.2s ease-out infinite",
+            }}
+          />
+        ) : null}
       </div>
-      <div className="pr-2">
-        <p className="text-xs font-bold text-gray-800">Claude Agent</p>
-        <p className="text-[10px] text-gray-500">
-          {othersThinking ? 'Печатает идеи...' : 'В сети'}
+      <div>
+        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#111827" }}>
+          Claude Agent
+        </p>
+        <p style={{ margin: 0, fontSize: 10, color: "#6b7280" }}>
+          {othersThinking ? "Печатает идеи…" : "В сети"}
         </p>
       </div>
+      <style>{`@keyframes lb-ping { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.35); opacity: 0; } }`}</style>
     </div>
-  )
+  );
 }
