@@ -1,112 +1,69 @@
+# src/agent/agent.py
 import json
-from google import genai
-from google.genai import types
+import uuid
 
-from src.config import settings
+from groq import AsyncGroq
 from src.agent.models import AgentRequest, AgentResponse, CanvasOperation
-from src.agent.tools import CANVAS_TOOLS
-from src.agent.session import get_history, update_session
+from src.agent.session import get_history, update_session_groq
+from src.agent.tools import GROQ_TOOLS
+from src.config import settings
 
-client = genai.Client(api_key=settings.gemini.KEY)
-MODEL = "gemini-2.0-flash"
+client = AsyncGroq(api_key=settings.grok.KEY)
+MODEL = "llama-3.3-70b-versatile"
 
-# ── System prompt ────────────────────────────────────────────────────────────
-# Your teammate owns the content of this string.
-# You own the surrounding infrastructure.
 SYSTEM_PROMPT = """
 You are a spatial brainstorming collaborator living on a shared canvas.
-You have full awareness of the canvas: every shape's ID, position, size, and label is given to you.
-
-When the user gives you an instruction:
-1. Reason about the existing layout — avoid overlapping shapes.
-2. Call one or more canvas tools to act spatially on the canvas.
-3. Always call at least one tool. Never respond with text only.
-4. Keep your agent_text short (1-2 sentences max).
-5. Use exact shape IDs from the canvas state when referencing existing shapes.
-6. Coordinates are in canvas units. Canvas dimensions are provided in the context.
+1. Reason about layout — avoid overlapping shapes.
+2. Call tools to act on the canvas.
+3. IMPORTANT: When creating a new shape (sticky_note, text, etc.), you MUST provide a unique temporary ID (e.g., "new_1", "note_5").
+4. If you add an arrow to a new shape, use the SAME ID you gave to that shape.
+5. Keep your agent_text short (1 sentence).
 """.strip()
 
 
 def _build_user_message(prompt: str, canvas_state) -> str:
-    """Combine the user prompt with a structured canvas context."""
-    shapes_json = json.dumps(
-        [s.model_dump(exclude_none=True) for s in canvas_state.shapes],
-        indent=2
-    )
+    shapes = [s.model_dump(exclude_none=True) for s in canvas_state.shapes]
     return (
         f"Canvas size: {canvas_state.width} x {canvas_state.height}\n"
-        f"Current shapes:\n{shapes_json}\n\n"
+        f"Current shapes: {json.dumps(shapes)}\n"
         f"Instruction: {prompt}"
     )
 
 
-def _parse_operations(response: types.GenerateContentResponse) -> list[CanvasOperation]:
-    """Extract all function_call parts from the Gemini response."""
-    operations = []
-
-    if not response.candidates:
-        return operations
-
-    for part in response.candidates[0].content.parts:
-        if part.function_call:
-            fc = part.function_call
-            args = dict(fc.args) if fc.args else {}
-            operations.append(
-                CanvasOperation(tool=fc.name, **args)
-            )
-
-    return operations
-
-
-def _parse_text(response: types.GenerateContentResponse) -> str:
-    """Extract plain text parts from the Gemini response."""
-    if not response.candidates:
-        return ""
-    texts = [
-        part.text
-        for part in response.candidates[0].content.parts
-        if hasattr(part, "text") and part.text
-    ]
-    return " ".join(texts).strip()
-
-
 async def run_agent(request: AgentRequest) -> AgentResponse:
-    """
-    Main entry point. Your teammate calls this from the WebSocket handler:
-
-        from src.agent.agent import run_agent
-        result = await run_agent(request)
-    """
     history = get_history(request.session_id)
     user_message = _build_user_message(request.prompt, request.canvas_state)
 
-    response = client.models.generate_content(
+    response = await client.chat.completions.create(
         model=MODEL,
-        contents=[
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
             *history,
-            types.Content(
-                role="user",
-                parts=[types.Part(text=user_message)]
-            )
+            {"role": "user", "content": user_message},
         ],
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-            tools=[CANVAS_TOOLS],
-            temperature=0.4,
-        ),
+        tools=GROQ_TOOLS,
+        tool_choice="auto",
+        temperature=0.1,
     )
 
-    operations = _parse_operations(response)
-    agent_text = _parse_text(response)
+    message = response.choices[0].message
+    operations = []
 
-    if not agent_text:
-        agent_text = "Done."
+    if message.tool_calls:
+        for tool_call in message.tool_calls:
+            args = json.loads(tool_call.function.arguments)
 
-    update_session(
-        session_id=request.session_id,
-        user_message=user_message,
-        model_response=response,
-        canvas_state=request.canvas_state,
+            # ХАК: Если нейронка забыла ID для создания объекта, генерим его сами
+            if "id" not in args and tool_call.function.name != "add_arrow":
+                args["id"] = f"temp_{uuid.uuid4().hex[:6]}"
+
+            operations.append(CanvasOperation(tool=tool_call.function.name, **args))
+
+    agent_text = message.content or "Done! I've updated the canvas."
+
+    # Сохраняем историю
+    update_session_groq(
+        session_id=request.session_id, user_text=user_message, bot_message=message
     )
 
     return AgentResponse(agent_text=agent_text, operations=operations)

@@ -60,7 +60,7 @@ class S3Settings(BaseModel):
         return f"https://{self.S3_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
 
-class GeminiAPI(BaseModel):
+class GrokAPI(BaseModel):
     KEY: str
 
 
@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     meilisearch: MeiliSearchSettings
     celery: CelerySetting
     higgsfield: HiggsfieldAPI
-    gemini: GeminiAPI
+    grok: GrokAPI
     model_config = SettingsConfigDict(
         env_file=ENV_PATH,
         env_file_encoding="utf-8",
