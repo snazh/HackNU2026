@@ -60,8 +60,13 @@ class S3Settings(BaseModel):
         return f"https://{self.S3_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
 
-class ExternalAPI(BaseModel):
-    GEMINI: str
+class GeminiAPI(BaseModel):
+    KEY: str
+
+
+class HiggsfieldAPI(BaseModel):
+    KEY: str
+    SECRET: str
 
 
 class Settings(BaseSettings):
@@ -72,7 +77,8 @@ class Settings(BaseSettings):
     redis: RedisSetting
     meilisearch: MeiliSearchSettings
     celery: CelerySetting
-    ext_api: ExternalAPI
+    higgsfield: HiggsfieldAPI
+    gemini: GeminiAPI
     model_config = SettingsConfigDict(
         env_file=ENV_PATH,
         env_file_encoding="utf-8",

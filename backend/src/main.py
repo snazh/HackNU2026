@@ -4,7 +4,7 @@ from typing import Union
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from src.api.routes.stickers import router as generate_route
+from src.api.routes.hf import router as generate_image_route
 from src.config import settings
 from src.exceptions.base import BaseAppException
 from starlette.responses import JSONResponse
@@ -31,7 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(generate_route, prefix="/api")
+app.include_router(generate_image_route, prefix="/api")
 
 
 @app.exception_handler(BaseAppException)
