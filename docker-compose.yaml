@@ -23,7 +23,6 @@ services:
       ports:
         - "7700:7700"
       environment:
-        # MeiliSearch ожидает эти переменные для работы
         - MEILI_MASTER_KEY=${MEILISEARCH__MEILI_MASTER_KEY}
         - MEILI_HTTP_ADDR=0.0.0.0:770
       volumes:

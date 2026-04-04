@@ -16,4 +16,8 @@ frontend/.env.local
 .DS_Store
 .vscode/
 .idea/
-front/node_modules/
+
+venv/
+__pycache__/
+*.pyc
+.env
