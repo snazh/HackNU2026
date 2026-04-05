@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field
 
 class UserPrompt(BaseModel):
     prompt: str
-    aspect_ratio: str
-    resoultion: str
+    aspect_ratio: str = "16:9"
+    resolution: str = "720p"
 
 
 class StickyNoteCreate(BaseModel):

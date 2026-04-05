@@ -1,23 +1,55 @@
 "use client";
 
-import { useEventListener, useOthers, useRoom, useSelf } from "@liveblocks/react/suspense";
+import {
+  useEventListener,
+  useOthers,
+  useRoom,
+  useSelf,
+} from "@liveblocks/react/suspense";
+import type { JsonObject } from "@liveblocks/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type Signal =
-  | { wb: "rtc-v1"; kind: "offer"; from: number; to: number; sdp: string }
-  | { wb: "rtc-v1"; kind: "answer"; from: number; to: number; sdp: string }
-  | { wb: "rtc-v1"; kind: "ice"; from: number; to: number; cand: RTCIceCandidateInit | null };
+  | {
+      wb: "rtc-v1";
+      kind: "offer";
+      from: number;
+      to: number;
+      sdp: string;
+    }
+  | {
+      wb: "rtc-v1";
+      kind: "answer";
+      from: number;
+      to: number;
+      sdp: string;
+    }
+  | {
+      wb: "rtc-v1";
+      kind: "ice";
+      from: number;
+      to: number;
+      cand: RTCIceCandidateInit | null;
+    };
 
 function isSignal(x: unknown): x is Signal {
-  return (
-    typeof x === "object" &&
-    x !== null &&
-    "wb" in x &&
-    (x as { wb?: string }).wb === "rtc-v1" &&
-    "kind" in x &&
-    "from" in x &&
-    "to" in x
-  );
+  if (typeof x !== "object" || x === null) return false;
+
+  const obj = x as Partial<Signal>;
+
+  if (obj.wb !== "rtc-v1") return false;
+  if (typeof obj.from !== "number") return false;
+  if (typeof obj.to !== "number") return false;
+
+  if (obj.kind === "offer" || obj.kind === "answer") {
+    return typeof obj.sdp === "string";
+  }
+
+  if (obj.kind === "ice") {
+    return "cand" in obj;
+  }
+
+  return false;
 }
 
 const ICE: RTCConfiguration = {
@@ -30,9 +62,12 @@ function shouldInitiate(myConnectionId: number, peerConnectionId: number): boole
 
 /**
  * Mesh WebRTC audio: hear others in the room; send mic when `localStream` is set and `micOn`.
- * Signaling uses Liveblocks `broadcastEvent` (no extra server).
+ * Signaling uses Liveblocks `broadcastEvent`.
  */
-export function useMeetingWebRTC(opts: { micOn: boolean; localStream: MediaStream | null }) {
+export function useMeetingWebRTC(opts: {
+  micOn: boolean;
+  localStream: MediaStream | null;
+}) {
   const room = useRoom();
   const self = useSelf();
   const others = useOthers();
@@ -47,7 +82,7 @@ export function useMeetingWebRTC(opts: { micOn: boolean; localStream: MediaStrea
 
   const broadcast = useCallback(
     (msg: Signal) => {
-      room.broadcastEvent(msg as unknown as Record<string, unknown>);
+      room.broadcastEvent(msg as JsonObject);
     },
     [room]
   );
@@ -55,7 +90,9 @@ export function useMeetingWebRTC(opts: { micOn: boolean; localStream: MediaStrea
   const flushPendingIce = useCallback(async (peerId: number, pc: RTCPeerConnection) => {
     const list = pendingIceRef.current.get(peerId);
     if (!list?.length) return;
+
     pendingIceRef.current.delete(peerId);
+
     for (const cand of list) {
       try {
         if (cand.candidate != null || cand.sdpMid != null) {
@@ -73,7 +110,9 @@ export function useMeetingWebRTC(opts: { micOn: boolean; localStream: MediaStrea
       pc.close();
       peersRef.current.delete(peerId);
     }
+
     pendingIceRef.current.delete(peerId);
+
     setRemoteStreams((prev) => {
       if (!(peerId in prev)) return prev;
       const next = { ...prev };
@@ -84,10 +123,10 @@ export function useMeetingWebRTC(opts: { micOn: boolean; localStream: MediaStrea
 
   const attachLocal = useCallback((pc: RTCPeerConnection) => {
     const { micOn, localStream } = optsRef.current;
-    const track =
-      micOn && localStream ? localStream.getAudioTracks()[0] ?? null : null;
+    const track = micOn && localStream ? (localStream.getAudioTracks()[0] ?? null) : null;
 
     const audioSender = pc.getSenders().find((s) => s.track?.kind === "audio");
+
     if (audioSender) {
       void audioSender.replaceTrack(track);
     } else if (track && localStream) {
@@ -100,9 +139,13 @@ export function useMeetingWebRTC(opts: { micOn: boolean; localStream: MediaStrea
       if (myId === undefined) return;
       if (!shouldInitiate(myId, peerId)) return;
       if (pc.signalingState !== "stable") return;
+
       try {
-        const offer = await pc.createOffer({ offerToReceiveAudio: true });
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+        });
         await pc.setLocalDescription(offer);
+
         broadcast({
           wb: "rtc-v1",
           kind: "offer",
@@ -129,9 +172,7 @@ export function useMeetingWebRTC(opts: { micOn: boolean; localStream: MediaStrea
       }
 
       pc.ontrack = (ev) => {
-        const stream =
-          ev.streams[0] ??
-          (ev.track ? new MediaStream([ev.track]) : null);
+        const stream = ev.streams[0] ?? (ev.track ? new MediaStream([ev.track]) : null);
         if (stream) {
           setRemoteStreams((prev) => ({ ...prev, [peerId]: stream }));
         }
@@ -139,15 +180,15 @@ export function useMeetingWebRTC(opts: { micOn: boolean; localStream: MediaStrea
 
       pc.onicecandidate = (ev) => {
         if (myId === undefined) return;
-        if (ev.candidate) {
-          broadcast({
-            wb: "rtc-v1",
-            kind: "ice",
-            from: myId,
-            to: peerId,
-            cand: ev.candidate.toJSON(),
-          });
-        }
+        if (!ev.candidate) return;
+
+        broadcast({
+          wb: "rtc-v1",
+          kind: "ice",
+          from: myId,
+          to: peerId,
+          cand: ev.candidate.toJSON(),
+        });
       };
 
       peersRef.current.set(peerId, pc);
@@ -174,67 +215,82 @@ export function useMeetingWebRTC(opts: { micOn: boolean; localStream: MediaStrea
       attachLocal(pc);
       void sendOffer(peerId, pc);
     }
-  }, [others, myId, createPeer, attachLocal, sendOffer, removePeer, opts.micOn, opts.localStream]);
+  }, [
+    others,
+    myId,
+    createPeer,
+    attachLocal,
+    sendOffer,
+    removePeer,
+    opts.micOn,
+    opts.localStream,
+  ]);
 
   useEventListener(
     useCallback(
       ({ event }: { event: unknown }) => {
         if (myId === undefined || !isSignal(event)) return;
-        const msg = event;
-        if (msg.to !== myId) return;
+        if (event.to !== myId) return;
 
         void (async () => {
-          if (msg.kind === "ice") {
-            const pc = peersRef.current.get(msg.from);
+          if (event.kind === "ice") {
+            const pc = peersRef.current.get(event.from);
+
             if (!pc) {
-              if (msg.cand) {
-                const list = pendingIceRef.current.get(msg.from) ?? [];
-                list.push(msg.cand);
-                pendingIceRef.current.set(msg.from, list);
+              if (event.cand) {
+                const list = pendingIceRef.current.get(event.from) ?? [];
+                list.push(event.cand);
+                pendingIceRef.current.set(event.from, list);
               }
               return;
             }
-            if (!msg.cand) return;
+
+            if (!event.cand) return;
+
             try {
               if (pc.remoteDescription) {
-                await pc.addIceCandidate(msg.cand);
+                await pc.addIceCandidate(event.cand);
               } else {
-                const list = pendingIceRef.current.get(msg.from) ?? [];
-                list.push(msg.cand);
-                pendingIceRef.current.set(msg.from, list);
+                const list = pendingIceRef.current.get(event.from) ?? [];
+                list.push(event.cand);
+                pendingIceRef.current.set(event.from, list);
               }
             } catch (e) {
               console.warn("[webrtc] incoming ice failed", e);
             }
+
             return;
           }
 
-          const pc = createPeer(msg.from);
+          const pc = createPeer(event.from);
 
-          if (msg.kind === "offer") {
+          if (event.kind === "offer") {
             try {
-              await pc.setRemoteDescription({ type: "offer", sdp: msg.sdp });
-              await flushPendingIce(msg.from, pc);
+              await pc.setRemoteDescription({ type: "offer", sdp: event.sdp });
+              await flushPendingIce(event.from, pc);
               attachLocal(pc);
+
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
+
               broadcast({
                 wb: "rtc-v1",
                 kind: "answer",
                 from: myId,
-                to: msg.from,
+                to: event.from,
                 sdp: answer.sdp ?? "",
               });
             } catch (e) {
               console.warn("[webrtc] handle offer failed", e);
             }
+
             return;
           }
 
-          if (msg.kind === "answer") {
+          if (event.kind === "answer") {
             try {
-              await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
-              await flushPendingIce(msg.from, pc);
+              await pc.setRemoteDescription({ type: "answer", sdp: event.sdp });
+              await flushPendingIce(event.from, pc);
             } catch (e) {
               console.warn("[webrtc] handle answer failed", e);
             }

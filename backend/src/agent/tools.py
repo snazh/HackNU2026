@@ -61,6 +61,11 @@ GROQ_TOOLS = [
                         "type": "string",
                         "enum": ["yellow", "pink", "blue", "green", "white"],
                     },
+                    "note_size": {
+                        "type": "string",
+                        "enum": ["s", "m", "l", "xl"],
+                        "description": "Sticky size preset.",
+                    },
                 },
                 "required": ["x", "y", "text"],
             },
@@ -135,6 +140,11 @@ GROQ_TOOLS = [
                     "x2": {"type": "number"},
                     "y2": {"type": "number"},
                     "color": {"type": "string", "enum": _FRAME_COLORS},
+                    "dash": {
+                        "type": "string",
+                        "enum": ["solid", "dashed", "dotted", "draw"],
+                        "description": "Line style (connectors, separators).",
+                    },
                 },
                 "required": ["x1", "y1", "x2", "y2"],
             },
@@ -200,6 +210,219 @@ GROQ_TOOLS = [
                 "type": "object",
                 "properties": {"id": {"type": "string"}},
                 "required": ["id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_image_from_url",
+            "description": (
+                "Place a raster image on the canvas from a public HTTPS URL "
+                "(e.g. user pasted a link, or a generated image URL). "
+                "Pick x,y away from existing shapes when possible."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "url": {"type": "string"},
+                    "x": {"type": "number"},
+                    "y": {"type": "number"},
+                    "width": {"type": "number"},
+                    "height": {"type": "number"},
+                },
+                "required": ["url", "x", "y"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_point_arrow",
+            "description": (
+                "Draw an arrow between two page coordinates (no existing shapes required). "
+                "Use for flowchart links, annotations, or labels along the arrow."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "x1": {"type": "number"},
+                    "y1": {"type": "number"},
+                    "x2": {"type": "number"},
+                    "y2": {"type": "number"},
+                    "label": {"type": "string"},
+                    "color": {"type": "string", "enum": _FRAME_COLORS},
+                    "bend": {
+                        "type": "number",
+                        "description": "Curvature hint; 0 is straight.",
+                    },
+                },
+                "required": ["x1", "y1", "x2", "y2"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_polyline",
+            "description": (
+                "Chain of straight segments through waypoints (same style as line tool). "
+                "Use for L-shaped connectors or multi-segment guides."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "points": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "x": {"type": "number"},
+                                "y": {"type": "number"},
+                            },
+                            "required": ["x", "y"],
+                        },
+                        "description": "At least two {x,y} points in order.",
+                    },
+                    "color": {"type": "string", "enum": _FRAME_COLORS},
+                    "dash": {
+                        "type": "string",
+                        "enum": ["solid", "dashed", "dotted", "draw"],
+                    },
+                },
+                "required": ["points"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_table",
+            "description": (
+                "Create a titled grid of labeled cells (comparison matrix, RACI, simple data). "
+                "Provide rows, cols, top-left x,y, cell size, and cells as row-major strings."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "x": {"type": "number"},
+                    "y": {"type": "number"},
+                    "rows": {"type": "integer", "minimum": 1, "maximum": 12},
+                    "cols": {"type": "integer", "minimum": 1, "maximum": 12},
+                    "cell_width": {"type": "number", "default": 120},
+                    "cell_height": {"type": "number", "default": 48},
+                    "name": {"type": "string"},
+                    "header_row": {
+                        "type": "boolean",
+                        "description": "If true, first row is styled as headers (still in cells array first).",
+                    },
+                    "cells": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Row-major values, length rows * cols (use empty strings for blanks).",
+                    },
+                },
+                "required": ["x", "y", "rows", "cols", "cells"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_flow_sequence",
+            "description": (
+                "Build a row or column of flowchart nodes with arrows between consecutive steps. "
+                "kind per step: rectangle (process), diamond (decision), ellipse (start/end)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "x": {"type": "number"},
+                    "y": {"type": "number"},
+                    "direction": {
+                        "type": "string",
+                        "enum": ["vertical", "horizontal"],
+                    },
+                    "gap": {
+                        "type": "number",
+                        "description": "Center-to-center spacing between steps.",
+                    },
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": {"type": "string"},
+                                "kind": {
+                                    "type": "string",
+                                    "enum": ["rectangle", "diamond", "ellipse"],
+                                },
+                            },
+                            "required": ["text"],
+                        },
+                    },
+                },
+                "required": ["x", "y", "direction", "steps"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "resize_shape",
+            "description": "Change width/height of a geo, frame, text, or note shape by id.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "width": {"type": "number"},
+                    "height": {"type": "number"},
+                },
+                "required": ["id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_shape_text",
+            "description": (
+                "Replace visible text on a sticky note, geo shape, or text shape. "
+                "Use canvas shape id from the snapshot."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "text": {"type": "string"},
+                },
+                "required": ["id", "text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "group_shapes",
+            "description": (
+                "Wrap several existing shapes in a group for moving together. "
+                "Pass shape ids from the current canvas snapshot."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "shape_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 2,
+                    },
+                },
+                "required": ["shape_ids"],
             },
         },
     },

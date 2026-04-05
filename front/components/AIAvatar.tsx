@@ -1,6 +1,6 @@
 "use client";
 
-import { useOthers } from "@liveblocks/react/suspense";
+import { useOthers, useSelf } from "@liveblocks/react/suspense";
 import type { CSSProperties } from "react";
 
 const wrap: CSSProperties = {
@@ -20,9 +20,11 @@ const wrap: CSSProperties = {
 };
 
 export default function AIAvatar() {
+  const selfThinking = useSelf((me) => Boolean(me.presence?.isAgentThinking));
   const othersThinking = useOthers((others) =>
     others.some((other) => Boolean(other.presence?.isAgentThinking))
   );
+  const anyoneThinking = Boolean(selfThinking || othersThinking);
 
   return (
     <div style={wrap}>
@@ -43,7 +45,7 @@ export default function AIAvatar() {
         >
           AI
         </div>
-        {othersThinking ? (
+        {anyoneThinking ? (
           <span
             style={{
               position: "absolute",
@@ -57,10 +59,14 @@ export default function AIAvatar() {
       </div>
       <div>
         <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#111827" }}>
-          Claude Agent
+          Canvas agent
         </p>
         <p style={{ margin: 0, fontSize: 10, color: "#6b7280" }}>
-          {othersThinking ? "Печатает идеи…" : "В сети"}
+          {anyoneThinking
+            ? selfThinking
+              ? "Working on the canvas…"
+              : "Teammate’s agent is active…"
+            : "Ready"}
         </p>
       </div>
       <style>{`@keyframes lb-ping { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.35); opacity: 0; } }`}</style>

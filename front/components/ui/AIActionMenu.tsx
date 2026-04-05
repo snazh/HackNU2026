@@ -12,11 +12,14 @@ import {
   toRichText,
   type IndexKey,
   type TLDefaultColorStyle,
+  type TLDefaultDashStyle,
   type TLDefaultFillStyle,
+  type TLDefaultSizeStyle,
   type TLGeoShapeGeoStyle,
   type TLShape,
   type TLShapeId,
 } from "@tldraw/tldraw";
+import { placeImageFromUrl } from "../../lib/placeImageOnCanvas";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -45,6 +48,21 @@ type CanvasOperation = {
   geo?: string;
   fill?: string;
   name?: string;
+  url?: string;
+  points?: { x: number; y: number }[];
+  steps?: { text: string; kind?: string }[];
+  direction?: string;
+  gap?: number;
+  rows?: number;
+  cols?: number;
+  cell_width?: number;
+  cell_height?: number;
+  cells?: string[];
+  header_row?: boolean;
+  shape_ids?: string[];
+  dash?: string;
+  note_size?: string;
+  bend?: number;
 };
 
 type AgentChatResponse = {
@@ -151,6 +169,18 @@ function mapFill(input: string | undefined): TLDefaultFillStyle {
   return "none";
 }
 
+const DASH_STYLES = new Set<string>(["solid", "dashed", "dotted", "draw"]);
+
+function mapDash(input: string | undefined): TLDefaultDashStyle {
+  if (input && DASH_STYLES.has(input)) return input as TLDefaultDashStyle;
+  return "solid";
+}
+
+function mapNoteSize(input: string | undefined): TLDefaultSizeStyle {
+  if (input === "s" || input === "l" || input === "xl") return input;
+  return "m";
+}
+
 function fontSizeToTextSize(fs: number | undefined): "s" | "m" | "l" | "xl" {
   if (fs == null) return "m";
   if (fs <= 14) return "s";
@@ -185,6 +215,8 @@ function apiShapeType(shape: TLShape): string {
       return "frame";
     case "line":
       return "line";
+    case "image":
+      return "image";
     default:
       return shape.type;
   }
@@ -198,7 +230,8 @@ function buildCanvasPayload(editor: Editor) {
   const bounds = editor.getViewportPageBounds();
   const shapes = editor.getCurrentPageShapes().map((s) => {
     const b = editor.getShapePageBounds(s);
-    const label = shapeLabel(editor, s);
+    const label =
+      s.type === "image" ? "[image]" : shapeLabel(editor, s);
     const rawColor = (s.props as { color?: unknown }).color;
     const color = typeof rawColor === "string" ? rawColor : undefined;
     const entry: Record<string, unknown> = {
@@ -251,12 +284,81 @@ function resolveShapeId(
   return null;
 }
 
-function applyAgentOperations(
+function flowStepDims(kind: string | undefined): { w: number; h: number; geo: TLGeoShapeGeoStyle } {
+  switch (kind) {
+    case "diamond":
+      return { w: 120, h: 120, geo: "diamond" };
+    case "ellipse":
+      return { w: 140, h: 88, geo: "ellipse" };
+    default:
+      return { w: 140, h: 72, geo: "rectangle" };
+  }
+}
+
+function createArrowBetweenShapes(
+  editor: Editor,
+  fromId: TLShapeId,
+  toId: TLShapeId,
+  label: string
+) {
+  const fromB = editor.getShapePageBounds(fromId);
+  const toB = editor.getShapePageBounds(toId);
+  if (!fromB || !toB) return;
+
+  const arrowId = createShapeId(
+    `ai_arr_${Math.random().toString(36).slice(2, 10)}`
+  );
+  const mx = (fromB.midX + toB.midX) / 2;
+  const my = (fromB.midY + toB.midY) / 2;
+
+  editor.createShape({
+    id: arrowId,
+    type: "arrow",
+    x: mx,
+    y: my,
+    props: {
+      bend: 0,
+      start: { x: 0, y: 0 },
+      end: { x: 0, y: 0 },
+      richText: toRichText(label),
+    },
+  });
+
+  editor.createBindings([
+    {
+      type: "arrow",
+      fromId: arrowId,
+      toId: fromId,
+      props: {
+        terminal: "start",
+        normalizedAnchor: { x: 0.5, y: 0.5 },
+        isExact: false,
+        isPrecise: true,
+        snap: "edge",
+      },
+    },
+    {
+      type: "arrow",
+      fromId: arrowId,
+      toId: toId,
+      props: {
+        terminal: "end",
+        normalizedAnchor: { x: 0.5, y: 0.5 },
+        isExact: false,
+        isPrecise: true,
+        snap: "edge",
+      },
+    },
+  ]);
+}
+
+async function applyAgentOperations(
   editor: Editor,
   operations: CanvasOperation[],
   pageCenter: { x: number; y: number }
 ) {
   const idMap = new Map<string, TLShapeId>();
+  const imageTasks: { url: string; x: number; y: number }[] = [];
 
   editor.run(() => {
     for (const op of operations) {
@@ -274,6 +376,7 @@ function applyAgentOperations(
             y: op.y ?? pageCenter.y,
             props: {
               color: mapNoteColor(op.color),
+              size: mapNoteSize(op.note_size),
               richText: toRichText(op.text ?? ""),
             },
           });
@@ -370,6 +473,10 @@ function applyAgentOperations(
             y: y1,
             props: {
               color: mapStrokeColor(op.color),
+              dash: mapDash(op.dash),
+              spline: "line",
+              size: "m",
+              scale: 1,
               points: {
                 a1: {
                   id: "a1",
@@ -392,56 +499,7 @@ function applyAgentOperations(
           const fromId = resolveShapeId(op.from_id, idMap, editor);
           const toId = resolveShapeId(op.to_id, idMap, editor);
           if (!fromId || !toId) break;
-
-          const fromB = editor.getShapePageBounds(fromId);
-          const toB = editor.getShapePageBounds(toId);
-          if (!fromB || !toB) break;
-
-          const arrowId = createShapeId(
-            `ai_arr_${Math.random().toString(36).slice(2, 10)}`
-          );
-          const mx = (fromB.midX + toB.midX) / 2;
-          const my = (fromB.midY + toB.midY) / 2;
-
-          editor.createShape({
-            id: arrowId,
-            type: "arrow",
-            x: mx,
-            y: my,
-            props: {
-              bend: 0,
-              start: { x: 0, y: 0 },
-              end: { x: 0, y: 0 },
-              richText: toRichText(op.label ?? ""),
-            },
-          });
-
-          editor.createBindings([
-            {
-              type: "arrow",
-              fromId: arrowId,
-              toId: fromId,
-              props: {
-                terminal: "start",
-                normalizedAnchor: { x: 0.5, y: 0.5 },
-                isExact: false,
-                isPrecise: true,
-                snap: "edge",
-              },
-            },
-            {
-              type: "arrow",
-              fromId: arrowId,
-              toId: toId,
-              props: {
-                terminal: "end",
-                normalizedAnchor: { x: 0.5, y: 0.5 },
-                isExact: false,
-                isPrecise: true,
-                snap: "edge",
-              },
-            },
-          ]);
+          createArrowBetweenShapes(editor, fromId, toId, op.label ?? "");
           break;
         }
         case "move_shape": {
@@ -462,15 +520,321 @@ function applyAgentOperations(
           if (sid) editor.deleteShape(sid);
           break;
         }
+        case "add_point_arrow": {
+          const x1 = op.x1 ?? op.x;
+          const y1 = op.y1 ?? op.y;
+          const x2 = op.x2;
+          const y2 = op.y2;
+          if (
+            x1 == null ||
+            y1 == null ||
+            x2 == null ||
+            y2 == null ||
+            !Number.isFinite(x1 + y1 + x2 + y2)
+          ) {
+            break;
+          }
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          const arrowId = createShapeId(
+            `ai_ptarr_${Math.random().toString(36).slice(2, 10)}`
+          );
+          editor.createShape({
+            id: arrowId,
+            type: "arrow",
+            x: x1,
+            y: y1,
+            props: {
+              kind: "arc",
+              labelColor: "black",
+              color: mapStrokeColor(op.color),
+              fill: "none",
+              dash: "solid",
+              size: "m",
+              arrowheadStart: "none",
+              arrowheadEnd: "arrow",
+              font: "draw",
+              start: { x: 0, y: 0 },
+              end: { x: dx, y: dy },
+              bend: finiteOr(op.bend ?? 0, 0),
+              richText: toRichText(op.label ?? ""),
+              labelPosition: 0.5,
+              scale: 1,
+              elbowMidPoint: 0.5,
+            },
+          });
+          break;
+        }
+        case "add_polyline": {
+          const pts = op.points;
+          if (!Array.isArray(pts) || pts.length < 2) break;
+          for (let i = 0; i < pts.length - 1; i++) {
+            const p0 = pts[i];
+            const p1 = pts[i + 1];
+            if (
+              !p0 ||
+              !p1 ||
+              typeof p0.x !== "number" ||
+              typeof p0.y !== "number" ||
+              typeof p1.x !== "number" ||
+              typeof p1.y !== "number"
+            ) {
+              continue;
+            }
+            const segId =
+              op.id != null
+                ? `${op.id}_seg_${i}`
+                : `pline_${Math.random().toString(36).slice(2, 9)}_${i}`;
+            const shapeId = safeShapeId(segId);
+            idMap.set(segId, shapeId);
+            const x1 = p0.x;
+            const y1 = p0.y;
+            const x2 = p1.x;
+            const y2 = p1.y;
+            editor.createShape({
+              id: shapeId,
+              type: "line",
+              x: x1,
+              y: y1,
+              props: {
+                color: mapStrokeColor(op.color),
+                dash: mapDash(op.dash),
+                spline: "line",
+                size: "m",
+                scale: 1,
+                points: {
+                  a1: {
+                    id: "a1",
+                    index: "a1" as IndexKey,
+                    x: 0,
+                    y: 0,
+                  },
+                  a2: {
+                    id: "a2",
+                    index: "a2" as IndexKey,
+                    x: x2 - x1,
+                    y: y2 - y1,
+                  },
+                },
+              },
+            });
+          }
+          break;
+        }
+        case "add_table": {
+          const rows = Math.min(12, Math.max(1, Math.floor(op.rows ?? 1)));
+          const cols = Math.min(12, Math.max(1, Math.floor(op.cols ?? 1)));
+          const cw = finiteOr(op.cell_width ?? 120, 120);
+          const ch = finiteOr(op.cell_height ?? 48, 48);
+          const ox = op.x ?? pageCenter.x;
+          const oy = op.y ?? pageCenter.y;
+          let cells: string[] = Array.isArray(op.cells)
+            ? op.cells.map((c) => String(c ?? ""))
+            : [];
+          const need = rows * cols;
+          while (cells.length < need) cells.push("");
+          if (cells.length > need) cells = cells.slice(0, need);
+
+          const frameRaw = op.id ?? `tbl_${Math.random().toString(36).slice(2, 9)}`;
+          const frameId = safeShapeId(frameRaw);
+          idMap.set(frameRaw, frameId);
+          const pad = 8;
+          const titleH = 28;
+          editor.createShape({
+            id: frameId,
+            type: "frame",
+            x: ox,
+            y: oy,
+            props: {
+              w: cols * cw + pad * 2,
+              h: rows * ch + pad * 2 + titleH,
+              name: op.name?.trim() || "Table",
+              color: mapStrokeColor("grey"),
+            },
+          });
+
+          for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+              const idx = r * cols + c;
+              const cellText = cells[idx] ?? "";
+              const isHeader = op.header_row && r === 0;
+              const cellRaw = `${frameRaw}_r${r}_c${c}`;
+              const cellShapeId = safeShapeId(cellRaw);
+              idMap.set(cellRaw, cellShapeId);
+              editor.createShape({
+                id: cellShapeId,
+                type: "geo",
+                x: ox + pad + c * cw,
+                y: oy + pad + titleH + r * ch,
+                props: {
+                  geo: "rectangle",
+                  w: cw - 4,
+                  h: ch - 4,
+                  color: "grey",
+                  fill: isHeader ? "solid" : "semi",
+                  richText: toRichText(cellText),
+                },
+              });
+            }
+          }
+          break;
+        }
+        case "add_flow_sequence": {
+          const steps = op.steps;
+          if (!Array.isArray(steps) || steps.length === 0) break;
+          const dir = op.direction === "horizontal" ? "horizontal" : "vertical";
+          const gap = finiteOr(op.gap ?? 32, 32);
+          let cx = op.x ?? pageCenter.x;
+          let cy = op.y ?? pageCenter.y;
+          const prefix = op.id ?? `flow_${Math.random().toString(36).slice(2, 9)}`;
+          const shapeIds: TLShapeId[] = [];
+
+          for (let i = 0; i < steps.length; i++) {
+            const step = steps[i] as { text?: string; kind?: string };
+            const text = String(step?.text ?? "");
+            const { w, h, geo } = flowStepDims(step?.kind);
+            const rawId = `${prefix}_s${i}`;
+            const shapeId = safeShapeId(rawId);
+            idMap.set(rawId, shapeId);
+            shapeIds.push(shapeId);
+
+            editor.createShape({
+              id: shapeId,
+              type: "geo",
+              x: cx,
+              y: cy,
+              props: {
+                geo,
+                w,
+                h,
+                color: mapStrokeColor("blue"),
+                fill: "semi",
+                richText: toRichText(text),
+              },
+            });
+
+            const b = editor.getShapePageBounds(shapeId);
+            if (!b) break;
+            if (dir === "vertical") {
+              cy = b.maxY + gap;
+            } else {
+              cx = b.maxX + gap;
+            }
+          }
+
+          for (let i = 0; i < shapeIds.length - 1; i++) {
+            createArrowBetweenShapes(editor, shapeIds[i], shapeIds[i + 1], "");
+          }
+          break;
+        }
+        case "resize_shape": {
+          const sid = resolveShapeId(op.id, idMap, editor);
+          if (!sid) break;
+          const sh = editor.getShape(sid);
+          if (!sh) break;
+          const nw = op.width;
+          const nh = op.height;
+          if (sh.type === "geo") {
+            const p = sh.props as { w: number; h: number };
+            editor.updateShape({
+              id: sid,
+              type: "geo",
+              props: {
+                w: nw != null ? finiteOr(nw, p.w) : p.w,
+                h: nh != null ? finiteOr(nh, p.h) : p.h,
+              },
+            });
+          } else if (sh.type === "frame") {
+            const p = sh.props as { w: number; h: number };
+            editor.updateShape({
+              id: sid,
+              type: "frame",
+              props: {
+                w: nw != null ? finiteOr(nw, p.w) : p.w,
+                h: nh != null ? finiteOr(nh, p.h) : p.h,
+              },
+            });
+          } else if (sh.type === "text") {
+            const p = sh.props as { w: number };
+            editor.updateShape({
+              id: sid,
+              type: "text",
+              props: {
+                w: nw != null ? finiteOr(nw, p.w) : p.w,
+              },
+            });
+          } else if (sh.type === "note" && nw != null) {
+            const s = finiteOr(nw, 200) / 200;
+            editor.updateShape({
+              id: sid,
+              type: "note",
+              props: {
+                scale: Math.max(0.25, Math.min(4, s)),
+              },
+            });
+          }
+          break;
+        }
+        case "update_shape_text": {
+          const sid = resolveShapeId(op.id, idMap, editor);
+          if (!sid) break;
+          const sh = editor.getShape(sid);
+          if (!sh) break;
+          const t = op.text ?? "";
+          if (sh.type === "note" || sh.type === "text" || sh.type === "geo") {
+            editor.updateShape({
+              id: sid,
+              type: sh.type,
+              props: {
+                richText: toRichText(t),
+              },
+            });
+          }
+          break;
+        }
+        case "group_shapes": {
+          const raw = op.shape_ids;
+          if (!Array.isArray(raw) || raw.length < 2) break;
+          const ids = raw
+            .map((r) => resolveShapeId(String(r), idMap, editor))
+            .filter((id): id is TLShapeId => id != null);
+          if (ids.length >= 2) {
+            editor.groupShapes(ids);
+          }
+          break;
+        }
+        case "add_image_from_url": {
+          const u = op.url?.trim();
+          if (!u) break;
+          imageTasks.push({
+            url: u,
+            x: op.x ?? pageCenter.x,
+            y: op.y ?? pageCenter.y,
+          });
+          break;
+        }
         default:
           break;
       }
     }
   });
+
+  for (const task of imageTasks) {
+    try {
+      await placeImageFromUrl(editor, task.url, { x: task.x, y: task.y });
+    } catch (e) {
+      console.error("add_image_from_url:", e);
+    }
+  }
 }
+
+type ContributionMode = "light" | "normal" | "bold";
 
 export default function AIActionMenu({ editor }: Props) {
   const [prompt, setPrompt] = useState("");
+  const [agentFocus, setAgentFocus] = useState("");
+  const [contributionMode, setContributionMode] =
+    useState<ContributionMode>("normal");
   const [loading, setLoading] = useState("");
   /** Liveblocks `id` is optional for guests; backend requires a string `session_id`. */
   const sessionId = useSelf((me) =>
@@ -495,10 +859,13 @@ export default function AIActionMenu({ editor }: Props) {
 
       try {
         const viewportCenter = getViewportPageCenter(editor);
+        const focus = agentFocus.trim();
         const body = {
           session_id: sessionId,
           prompt: `Create or extend a diagram on the canvas (flowchart / mind map / connected ideas): ${p}`,
           canvas_state: buildCanvasPayload(editor),
+          ...(focus ? { agent_focus: focus } : {}),
+          contribution_mode: contributionMode,
         };
 
         const response = await fetch(`${API_BASE}/api/chat`, {
@@ -513,7 +880,7 @@ export default function AIActionMenu({ editor }: Props) {
 
         const data = (await response.json()) as AgentChatResponse;
         if (data.operations?.length) {
-          applyAgentOperations(editor, data.operations, viewportCenter);
+          await applyAgentOperations(editor, data.operations, viewportCenter);
         }
         if (data.agent_text) {
           console.info("[AI]", data.agent_text);
@@ -526,7 +893,7 @@ export default function AIActionMenu({ editor }: Props) {
         setAgentThinking(false);
       }
     },
-    [editor, sessionId, setAgentThinking]
+    [agentFocus, contributionMode, editor, sessionId, setAgentThinking]
   );
 
   const busy = loading !== "";
@@ -540,10 +907,13 @@ export default function AIActionMenu({ editor }: Props) {
 
       try {
         const viewportCenter = getViewportPageCenter(editor);
+        const focus = agentFocus.trim();
         const body = {
           session_id: sessionId,
           prompt: p,
           canvas_state: buildCanvasPayload(editor),
+          ...(focus ? { agent_focus: focus } : {}),
+          contribution_mode: contributionMode,
         };
 
         const response = await fetch(`${API_BASE}/api/chat`, {
@@ -558,7 +928,7 @@ export default function AIActionMenu({ editor }: Props) {
 
         const data = (await response.json()) as AgentChatResponse;
         if (data.operations?.length) {
-          applyAgentOperations(editor, data.operations, viewportCenter);
+          await applyAgentOperations(editor, data.operations, viewportCenter);
         }
         if (data.agent_text) {
           console.info("[AI]", data.agent_text);
@@ -571,8 +941,42 @@ export default function AIActionMenu({ editor }: Props) {
         setAgentThinking(false);
       }
     },
-    [editor, sessionId, setAgentThinking]
+    [agentFocus, contributionMode, editor, sessionId, setAgentThinking]
   );
+
+  const runGenerateImage = useCallback(async () => {
+    const p = prompt.trim();
+    if (!p) return;
+    setLoading("image");
+    setAgentThinking(true);
+    try {
+      const viewportCenter = getViewportPageCenter(editor);
+      const response = await fetch(`${API_BASE}/api/generate-image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: p,
+          aspect_ratio: "16:9",
+          resolution: "720p",
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`API ${response.status}`);
+      }
+      const data: unknown = await response.json();
+      const url =
+        typeof data === "string"
+          ? data
+          : (data as { url?: string }).url;
+      if (!url) throw new Error("No image URL in response");
+      await placeImageFromUrl(editor, url, viewportCenter);
+    } catch (error) {
+      console.error("Higgsfield image error:", error);
+    } finally {
+      setLoading("");
+      setAgentThinking(false);
+    }
+  }, [editor, prompt, setAgentThinking]);
 
   const {
     listening: voiceListening,
@@ -675,6 +1079,26 @@ export default function AIActionMenu({ editor }: Props) {
       </button>
       <button
         type="button"
+        onClick={() => void runGenerateImage()}
+        disabled={busy || !prompt.trim()}
+        style={{
+          padding: "8px 12px",
+          borderRadius: 8,
+          border: "1px solid #fbcfe8",
+          fontWeight: 600,
+          fontSize: 13,
+          cursor: busy || !prompt.trim() ? "not-allowed" : "pointer",
+          background:
+            busy || !prompt.trim() ? "#f3f4f6" : "#fdf2f8",
+          color: busy || !prompt.trim() ? "#9ca3af" : "#be185d",
+          pointerEvents: "auto",
+        }}
+        title="Higgsfield: generate an image from the prompt and place it on the canvas"
+      >
+        {loading === "image" ? "…" : "AI image"}
+      </button>
+      <button
+        type="button"
         onClick={() => void runBrainstormWithPrompt(prompt)}
         disabled={busy}
         style={{
@@ -689,8 +1113,63 @@ export default function AIActionMenu({ editor }: Props) {
           pointerEvents: "auto",
         }}
       >
-        {loading === "brainstorm" ? "ИИ думает…" : "Brainstorm"}
+        {loading === "brainstorm" ? "Thinking…" : "Brainstorm"}
       </button>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+          flexWrap: "wrap",
+          justifyContent: "center",
+          pointerEvents: "auto",
+        }}
+      >
+        <input
+          type="text"
+          value={agentFocus}
+          onChange={(e) => setAgentFocus(e.target.value)}
+          placeholder="Optional focus for the agent (topic, constraints)"
+          style={{
+            flex: "1 1 220px",
+            minWidth: 180,
+            maxWidth: 360,
+            padding: "6px 10px",
+            fontSize: 12,
+            border: "1px solid #e5e7eb",
+            borderRadius: 8,
+            outline: "none",
+          }}
+        />
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+            color: "#475569",
+          }}
+        >
+          <span style={{ whiteSpace: "nowrap" }}>Contribution</span>
+          <select
+            value={contributionMode}
+            onChange={(e) =>
+              setContributionMode(e.target.value as ContributionMode)
+            }
+            style={{
+              padding: "6px 8px",
+              fontSize: 12,
+              borderRadius: 6,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+            }}
+          >
+            <option value="light">Light</option>
+            <option value="normal">Normal</option>
+            <option value="bold">Bold</option>
+          </select>
+        </label>
       </div>
       {(voiceListening || voiceLine || voiceErrorHint) && (
         <div

@@ -10,10 +10,12 @@ router = APIRouter()
 
 @router.post("/generate-image")
 async def generate(data: UserPrompt):
-    image = await generate_image(
-        prompt=data.prompt, aspect_ratio=data.aspect_ratio, resolution=data.resoultion
+    url = await generate_image(
+        prompt=data.prompt,
+        aspect_ratio=data.aspect_ratio,
+        resolution=data.resolution,
     )
-    return image
+    return {"url": url}
 
 
 @router.post("/chat", response_model=AgentResponse)

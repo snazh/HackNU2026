@@ -26,18 +26,37 @@ type ParticipantRow = {
   micOn: boolean;
 };
 
+/**
+ * Local shape used by this component.
+ * Your Liveblocks config should ideally define these globally too,
+ * but this keeps this file type-safe on its own.
+ */
+type MeetingUser = {
+  id?: string;
+  connectionId: number;
+  info?: {
+    name?: string;
+    color?: string;
+  };
+  presence?: {
+    micOn?: boolean;
+  };
+};
+
 function mergeParticipants(
-  self: ReturnType<typeof useSelf> | null,
-  others: ReturnType<typeof useOthers>
+  self: MeetingUser | null | undefined,
+  others: readonly MeetingUser[]
 ): ParticipantRow[] {
   const map = new Map<string, ParticipantRow>();
 
-  const add = (u: NonNullable<ReturnType<typeof useSelf>>) => {
+  const add = (u: MeetingUser) => {
     const dedupeKey =
       typeof u.id === "string" && u.id.length > 0 ? u.id : `conn:${u.connectionId}`;
+
     const name = u.info?.name?.trim() || "Guest";
     const color = collaboratorColor(u.info?.color);
     const micOn = Boolean(u.presence?.micOn);
+
     const prev = map.get(dedupeKey);
     if (!prev) {
       map.set(dedupeKey, { dedupeKey, name, color, micOn });
@@ -54,12 +73,17 @@ function mergeParticipants(
 
 export function MeetingBar({ roomSlug }: { roomSlug: string }) {
   const [myPresence, updateMyPresence] = useMyPresence();
-  const self = useSelf();
-  const others = useOthers();
+  const self = useSelf() as MeetingUser | null;
+  const others = useOthers() as readonly MeetingUser[];
   const syncStatus = useSyncStatus();
-  const { toggleMic, localStream } = useMeetingMicrophone(myPresence.micOn, updateMyPresence);
+
+  const { toggleMic, localStream } = useMeetingMicrophone(
+    Boolean(myPresence?.micOn),
+    updateMyPresence
+  );
+
   const { remoteStreams } = useMeetingWebRTC({
-    micOn: Boolean(myPresence.micOn),
+    micOn: Boolean(myPresence?.micOn),
     localStream,
   });
 
@@ -94,8 +118,14 @@ export function MeetingBar({ roomSlug }: { roomSlug: string }) {
 
   useEffect(() => {
     const unlock = () => setRemoteAudioUnlocked(true);
+
     window.addEventListener("pointerdown", unlock, { capture: true, once: true });
     window.addEventListener("keydown", unlock, { capture: true, once: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", unlock, { capture: true });
+      window.removeEventListener("keydown", unlock, { capture: true });
+    };
   }, []);
 
   useEffect(() => {
@@ -117,7 +147,8 @@ export function MeetingBar({ roomSlug }: { roomSlug: string }) {
         alignItems: "center",
         gap: 12,
         padding: "10px 14px",
-        background: "linear-gradient(180deg, rgba(15,23,42,0.92) 0%, rgba(15,23,42,0.75) 100%)",
+        background:
+          "linear-gradient(180deg, rgba(15,23,42,0.92) 0%, rgba(15,23,42,0.75) 100%)",
         borderBottom: "1px solid rgba(255,255,255,0.08)",
         pointerEvents: "auto",
         flexWrap: "wrap",
@@ -151,7 +182,14 @@ export function MeetingBar({ roomSlug }: { roomSlug: string }) {
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 120 }}>
-        <span style={{ fontSize: 11, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+        <span
+          style={{
+            fontSize: 11,
+            color: "#94a3b8",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+          }}
+        >
           Meeting
         </span>
         <span style={{ fontSize: 15, fontWeight: 600, color: "#f8fafc" }}>{roomSlug}</span>
@@ -168,46 +206,46 @@ export function MeetingBar({ roomSlug }: { roomSlug: string }) {
 
       <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
         <span style={{ fontSize: 12, color: "#94a3b8", marginRight: 4 }}>On canvas</span>
+
         <div style={{ display: "flex", alignItems: "center" }}>
-          {participants.map((user, i) => {
-            return (
-              <div
-                key={user.dedupeKey}
-                title={`${user.name}${user.micOn ? " · mic on" : ""}`}
+          {participants.map((user, i) => (
+            <div
+              key={user.dedupeKey}
+              title={`${user.name}${user.micOn ? " · mic on" : ""}`}
+              style={{
+                position: "relative",
+                marginLeft: i > 0 ? -8 : 0,
+                width: 34,
+                height: 34,
+                borderRadius: "50%",
+                background: user.color,
+                border: "2px solid #0f172a",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 12,
+                fontWeight: 700,
+                color: "#fff",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+              }}
+            >
+              {user.name.slice(0, 1).toUpperCase()}
+              <span
                 style={{
-                  position: "relative",
-                  marginLeft: i > 0 ? -8 : 0,
-                  width: 34,
-                  height: 34,
+                  position: "absolute",
+                  bottom: -1,
+                  right: -1,
+                  width: 10,
+                  height: 10,
                   borderRadius: "50%",
-                  background: user.color,
+                  background: user.micOn ? "#22c55e" : "#64748b",
                   border: "2px solid #0f172a",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#fff",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
                 }}
-              >
-                {user.name.slice(0, 1).toUpperCase()}
-                <span
-                  style={{
-                    position: "absolute",
-                    bottom: -1,
-                    right: -1,
-                    width: 10,
-                    height: 10,
-                    borderRadius: "50%",
-                    background: user.micOn ? "#22c55e" : "#64748b",
-                    border: "2px solid #0f172a",
-                  }}
-                />
-              </div>
-            );
-          })}
+              />
+            </div>
+          ))}
         </div>
+
         <span style={{ fontSize: 12, color: "#cbd5e1", marginLeft: 8 }}>
           {participants.length} online
         </span>
@@ -240,12 +278,12 @@ export function MeetingBar({ roomSlug }: { roomSlug: string }) {
             cursor: "pointer",
             fontWeight: 600,
             fontSize: 13,
-            background: myPresence.micOn ? "#22c55e" : "#334155",
+            background: myPresence?.micOn ? "#22c55e" : "#334155",
             color: "#fff",
           }}
         >
-          <span aria-hidden>{myPresence.micOn ? "🎤" : "🎙️"}</span>
-          {myPresence.micOn ? "Mute" : "Unmute"}
+          <span aria-hidden>{myPresence?.micOn ? "🎤" : "🎙️"}</span>
+          {myPresence?.micOn ? "Mute" : "Unmute"}
         </button>
 
         <button
@@ -271,24 +309,34 @@ export function MeetingBar({ roomSlug }: { roomSlug: string }) {
 
 function RemoteMeetingAudio({ stream }: { stream: MediaStream }) {
   const ref = useRef<HTMLAudioElement>(null);
+
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+
     el.srcObject = stream;
     el.volume = 1;
-    const tryPlay = () => void el.play().catch(() => {});
+
+    const tryPlay = () => {
+      void el.play().catch(() => {});
+    };
+
     tryPlay();
+
     const tracks = stream.getAudioTracks();
     const onUnmute = () => tryPlay();
+
     for (const t of tracks) {
       t.addEventListener("unmute", onUnmute);
     }
+
     return () => {
       for (const t of tracks) {
         t.removeEventListener("unmute", onUnmute);
       }
     };
   }, [stream]);
+
   return (
     <audio
       ref={ref}

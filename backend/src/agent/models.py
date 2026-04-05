@@ -23,10 +23,15 @@ class AgentRequest(BaseModel):
     session_id: str
     prompt: str
     canvas_state: CanvasState
+    # User control: optional focus for this turn/session (canvas-aware prompting).
+    agent_focus: Optional[str] = None
+    # light | normal | bold — how much the agent should change the canvas.
+    contribution_mode: Optional[str] = None
 
 
 class CanvasOperation(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    # LLM tool args may include arrays (tables, flows, polylines) — keep unknown keys.
+    model_config = ConfigDict(extra="allow")
 
     tool: str
     # All possible fields — frontend reads only what's relevant per tool
@@ -52,6 +57,23 @@ class CanvasOperation(BaseModel):
     fill: Optional[str] = None
     # add_frame
     name: Optional[str] = None
+    # add_image_from_url
+    url: Optional[str] = None
+    # add_table / add_flow_sequence / add_polyline / group_shapes / add_point_arrow
+    rows: Optional[int] = None
+    cols: Optional[int] = None
+    cell_width: Optional[float] = None
+    cell_height: Optional[float] = None
+    cells: Optional[list] = None
+    header_row: Optional[bool] = None
+    steps: Optional[list] = None
+    direction: Optional[str] = None
+    gap: Optional[float] = None
+    shape_ids: Optional[list] = None
+    points: Optional[list] = None
+    dash: Optional[str] = None
+    note_size: Optional[str] = None
+    bend: Optional[float] = None
 
 
 class AgentResponse(BaseModel):
