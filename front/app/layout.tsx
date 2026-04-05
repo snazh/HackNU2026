@@ -1,4 +1,5 @@
-// app/layout.tsx
+import "./globals.css";
+
 export const metadata = {
   title: 'AI Brainstorm Canvas',
   description: 'Hackathon Project',

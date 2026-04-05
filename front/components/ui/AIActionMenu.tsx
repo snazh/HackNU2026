@@ -1,7 +1,9 @@
 "use client";
 
 import { useMutation, useSelf } from "@liveblocks/react/suspense";
-import { useState, type CSSProperties } from "react";
+import { useCallback, useState, type CSSProperties } from "react";
+import { useVoiceAgentDiagram } from "../../hooks/useVoiceAgentDiagram";
+import { parseVoiceIntent } from "../../lib/voiceIntent";
 import type { TLRichText } from "@tldraw/tlschema";
 import {
   createShapeId,
@@ -484,93 +486,131 @@ export default function AIActionMenu({ editor }: Props) {
     []
   );
 
-  const runDiagram = async () => {
-    if (!prompt.trim()) return;
-    setLoading("diagram");
-    setAgentThinking(true);
+  const runDiagramWithPrompt = useCallback(
+    async (diagramPrompt: string) => {
+      const p = diagramPrompt.trim();
+      if (!p) return;
+      setLoading("diagram");
+      setAgentThinking(true);
 
-    try {
-      const viewportCenter = getViewportPageCenter(editor);
-      const body = {
-        session_id: sessionId,
-        prompt: `Create or extend a diagram on the canvas (flowchart / mind map / connected ideas): ${prompt}`,
-        canvas_state: buildCanvasPayload(editor),
-      };
+      try {
+        const viewportCenter = getViewportPageCenter(editor);
+        const body = {
+          session_id: sessionId,
+          prompt: `Create or extend a diagram on the canvas (flowchart / mind map / connected ideas): ${p}`,
+          canvas_state: buildCanvasPayload(editor),
+        };
 
-      const response = await fetch(`${API_BASE}/api/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+        const response = await fetch(`${API_BASE}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
 
-      if (!response.ok) {
-        throw new Error(`API ${response.status}`);
+        if (!response.ok) {
+          throw new Error(`API ${response.status}`);
+        }
+
+        const data = (await response.json()) as AgentChatResponse;
+        if (data.operations?.length) {
+          applyAgentOperations(editor, data.operations, viewportCenter);
+        }
+        if (data.agent_text) {
+          console.info("[AI]", data.agent_text);
+        }
+      } catch (error) {
+        console.error("AI diagram error:", error);
+      } finally {
+        setLoading("");
+        setPrompt("");
+        setAgentThinking(false);
       }
-
-      const data = (await response.json()) as AgentChatResponse;
-      if (data.operations?.length) {
-        applyAgentOperations(editor, data.operations, viewportCenter);
-      }
-      if (data.agent_text) {
-        console.info("[AI]", data.agent_text);
-      }
-    } catch (error) {
-      console.error("AI diagram error:", error);
-    } finally {
-      setLoading("");
-      setPrompt("");
-      setAgentThinking(false);
-    }
-  };
-
-  const runBrainstorm = async () => {
-    if (!prompt.trim()) return;
-    setLoading("brainstorm");
-    setAgentThinking(true);
-
-    try {
-      const viewportCenter = getViewportPageCenter(editor);
-      const body = {
-        session_id: sessionId,
-        prompt,
-        canvas_state: buildCanvasPayload(editor),
-      };
-
-      const response = await fetch(`${API_BASE}/api/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API ${response.status}`);
-      }
-
-      const data = (await response.json()) as AgentChatResponse;
-      if (data.operations?.length) {
-        applyAgentOperations(editor, data.operations, viewportCenter);
-      }
-      if (data.agent_text) {
-        console.info("[AI]", data.agent_text);
-      }
-    } catch (error) {
-      console.error("AI brainstorm error:", error);
-    } finally {
-      setLoading("");
-      setPrompt("");
-      setAgentThinking(false);
-    }
-  };
+    },
+    [editor, sessionId, setAgentThinking]
+  );
 
   const busy = loading !== "";
 
+  const runBrainstormWithPrompt = useCallback(
+    async (brainstormPrompt: string) => {
+      const p = brainstormPrompt.trim();
+      if (!p) return;
+      setLoading("brainstorm");
+      setAgentThinking(true);
+
+      try {
+        const viewportCenter = getViewportPageCenter(editor);
+        const body = {
+          session_id: sessionId,
+          prompt: p,
+          canvas_state: buildCanvasPayload(editor),
+        };
+
+        const response = await fetch(`${API_BASE}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+          throw new Error(`API ${response.status}`);
+        }
+
+        const data = (await response.json()) as AgentChatResponse;
+        if (data.operations?.length) {
+          applyAgentOperations(editor, data.operations, viewportCenter);
+        }
+        if (data.agent_text) {
+          console.info("[AI]", data.agent_text);
+        }
+      } catch (error) {
+        console.error("AI brainstorm error:", error);
+      } finally {
+        setLoading("");
+        setPrompt("");
+        setAgentThinking(false);
+      }
+    },
+    [editor, sessionId, setAgentThinking]
+  );
+
+  const {
+    listening: voiceListening,
+    line: voiceLine,
+    toggle: toggleVoice,
+    startListening: startVoice,
+    unsupported: voiceUnsupported,
+    errorHint: voiceErrorHint,
+  } = useVoiceAgentDiagram({
+    onTranscript: setPrompt,
+    onSessionEnd: (text) => {
+      const intent = parseVoiceIntent(text);
+      if (!intent) return;
+      if (intent.kind === "diagram") {
+        void runDiagramWithPrompt(intent.prompt);
+      } else {
+        void runBrainstormWithPrompt(intent.prompt);
+      }
+    },
+    disabled: busy,
+  });
+
   return (
-    <div style={shell}>
+    <div style={{ ...shell, flexDirection: "column", alignItems: "stretch", gap: 6 }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+          flexWrap: "wrap",
+          justifyContent: "center",
+        }}
+      >
       <input
         type="text"
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
-        placeholder="О чём брейнштормим?…"
+        placeholder="What should we brainstorm about?"
         style={{
           width: 280,
           padding: "8px 12px",
@@ -583,13 +623,40 @@ export default function AIActionMenu({ editor }: Props) {
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            void runBrainstorm();
+            void runBrainstormWithPrompt(prompt);
           }
         }}
       />
       <button
         type="button"
-        onClick={() => void runDiagram()}
+        className={voiceListening && !voiceUnsupported ? "voice-rec-btn--active" : undefined}
+        onClick={() => {
+          if (voiceListening) toggleVoice();
+          else void startVoice(prompt);
+        }}
+        disabled={busy || voiceUnsupported}
+        style={{
+          padding: "8px 12px",
+          borderRadius: 8,
+          border: "1px solid #fcd34d",
+          fontWeight: 600,
+          fontSize: 13,
+          cursor: busy || voiceUnsupported ? "not-allowed" : "pointer",
+          background: voiceListening ? "#fef3c7" : busy || voiceUnsupported ? "#f3f4f6" : "#fffbeb",
+          color: busy || voiceUnsupported ? "#9ca3af" : "#b45309",
+          pointerEvents: "auto",
+        }}
+        title={
+          voiceUnsupported
+            ? "Speech recognition is not supported in this browser (try Chrome or Edge)."
+            : "Speech fills the field. Stop records: say diagram / диаграмма / agent for Diagram, or brainstorm / брейншторм for Brainstorm — otherwise Brainstorm runs with your words."
+        }
+      >
+        {voiceListening ? "⏹ Stop" : "🎤 Voice"}
+      </button>
+      <button
+        type="button"
+        onClick={() => void runDiagramWithPrompt(prompt)}
         disabled={busy}
         style={{
           padding: "8px 12px",
@@ -602,13 +669,13 @@ export default function AIActionMenu({ editor }: Props) {
           color: busy ? "#9ca3af" : "#4338ca",
           pointerEvents: "auto",
         }}
-        title="Схема: узлы и стрелки через ИИ"
+        title="Diagram: AI-generated nodes and arrows on the canvas"
       >
-        {loading === "diagram" ? "…" : "Диаграмма"}
+        {loading === "diagram" ? "…" : "Diagram"}
       </button>
       <button
         type="button"
-        onClick={() => void runBrainstorm()}
+        onClick={() => void runBrainstormWithPrompt(prompt)}
         disabled={busy}
         style={{
           padding: "8px 16px",
@@ -624,6 +691,46 @@ export default function AIActionMenu({ editor }: Props) {
       >
         {loading === "brainstorm" ? "ИИ думает…" : "Brainstorm"}
       </button>
+      </div>
+      {(voiceListening || voiceLine || voiceErrorHint) && (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 8,
+            pointerEvents: "none",
+          }}
+        >
+          {voiceListening && (
+            <div className="voice-rec-bars" aria-hidden>
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+          )}
+          {voiceErrorHint ? (
+            <div style={{ fontSize: 11, color: "#dc2626", maxWidth: 520, textAlign: "center" }}>
+              {voiceErrorHint}
+            </div>
+          ) : (
+            <div
+              style={{
+                fontSize: 11,
+                color: "#64748b",
+                maxWidth: 520,
+                textAlign: "center",
+                lineHeight: 1.35,
+              }}
+            >
+              {voiceListening ? "Listening — " : ""}
+              {voiceLine || (voiceListening ? "…" : "")}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
