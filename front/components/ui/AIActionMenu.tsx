@@ -868,7 +868,7 @@ export default function AIActionMenu({ editor }: Props) {
           contribution_mode: contributionMode,
         };
 
-        const response = await fetch(`${API_BASE}/api/chat`, {
+        const response = await fetch(`${API_BASE}/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -916,7 +916,7 @@ export default function AIActionMenu({ editor }: Props) {
           contribution_mode: contributionMode,
         };
 
-        const response = await fetch(`${API_BASE}/api/chat`, {
+        const response = await fetch(`${API_BASE}/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -951,7 +951,7 @@ export default function AIActionMenu({ editor }: Props) {
     setAgentThinking(true);
     try {
       const viewportCenter = getViewportPageCenter(editor);
-      const response = await fetch(`${API_BASE}/api/generate-image`, {
+      const response = await fetch(`${API_BASE}/generate-image`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

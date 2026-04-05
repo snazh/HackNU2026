@@ -87,7 +87,7 @@ export function CollaborativeCanvas() {
       >
         {collab}
       </div>
-      <Tldraw
+      <Tldraw licenseKey={process.env.NEXT_PUBLIC_TLDRAW_LICENSE_KEY} 
         user={tldrawUser}
         store={storeWithStatus.store}
         autoFocus

@@ -6,7 +6,8 @@ services:
       context: ./front
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+        NEXT_PUBLIC_TLDRAW_LICENSE_KEY: ${NEXT_PUBLIC_TLDRAW_LICENSE_KEY}
         NEXT_PUBLIC_LIVEBLOCKS_PUBLIC_KEY: ${NEXT_PUBLIC_LIVEBLOCKS_PUBLIC_KEY:-}
         NEXT_PUBLIC_LIVEBLOCKS_USE_AUTH: ${NEXT_PUBLIC_LIVEBLOCKS_USE_AUTH:-false}
         NEXT_PUBLIC_LIVEBLOCKS_ROOM_ID: ${NEXT_PUBLIC_LIVEBLOCKS_ROOM_ID:-hackathon-ai-brainstorm-room}
@@ -22,7 +23,6 @@ services:
       backend:
         condition: service_started
 
- 
   backend:
     build:
       context: ./backend
@@ -32,6 +32,3 @@ services:
       - "8000:8000"
     env_file:
       - .env
-
-
-
