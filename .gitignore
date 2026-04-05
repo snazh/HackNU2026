@@ -5,14 +5,23 @@ backend/venv/
 backend/.venv/
 backend/.env
 
+# Next.js
+**/.next
+**/.next/
+front/.next
 # --- Игнорируем специфику Frontend (React в папке frontend/) ---
-frontend/node_modules/
-frontend/build/
-frontend/dist/
-frontend/.env.local
+front/node_modules/
+front/build/
+front/dist/
+front/.env.local
 
 # --- Общие правила для корня ---
 .env
 .DS_Store
 .vscode/
 .idea/
+
+venv/
+__pycache__/
+*.pyc
+.env

@@ -4,11 +4,10 @@ from typing import Union
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.sessions import SessionMiddleware
+from src.api.routes.hf import router as generate_image_route
+from src.config import settings
+from src.exceptions.base import BaseAppException
 from starlette.responses import JSONResponse
-
-from backend.src.config import settings
-from backend.src.exceptions.base import BaseAppException
 
 logger = logging.getLogger(__name__)
 
@@ -20,18 +19,21 @@ async def lifespan(app_instance: FastAPI):
 
 app = FastAPI(title="KezdesuAI API", lifespan=lifespan)
 
-app.add_middleware(SessionMiddleware, secret_key=settings.auth.SECRET_KEY)
-# Настройка CORS
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(generate_image_route, prefix="/api")
 
 
 @app.exception_handler(BaseAppException)

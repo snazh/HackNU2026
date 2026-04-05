@@ -60,6 +60,15 @@ class S3Settings(BaseModel):
         return f"https://{self.S3_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
 
+class GrokAPI(BaseModel):
+    KEY: str
+
+
+class HiggsfieldAPI(BaseModel):
+    KEY: str
+    SECRET: str
+
+
 class Settings(BaseSettings):
     db: DBSettings
     auth: AuthSettings
@@ -68,6 +77,8 @@ class Settings(BaseSettings):
     redis: RedisSetting
     meilisearch: MeiliSearchSettings
     celery: CelerySetting
+    higgsfield: HiggsfieldAPI
+    grok: GrokAPI
     model_config = SettingsConfigDict(
         env_file=ENV_PATH,
         env_file_encoding="utf-8",
